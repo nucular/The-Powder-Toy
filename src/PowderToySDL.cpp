@@ -4,7 +4,7 @@
 #include <string>
 #include <time.h>
 #ifdef SDL_INC
-#include "SDL/SDL.h"
+#include "SDL2/SDL.h"
 #else
 #include "SDL.h"
 #endif
@@ -17,9 +17,7 @@
 #include <string>
 #include "Config.h"
 #include "graphics/Graphics.h"
-#if defined(LIN)
 #include "icon.h"
-#endif
 #include <signal.h>
 
 #ifndef WIN
@@ -54,7 +52,7 @@ using namespace std;
 
 #if defined(WIN) || defined(LIN)
 #ifdef SDL_INC
-#include <SDL/SDL_syswm.h>
+#include <SDL2/SDL_syswm.h>
 #else
 #include <SDL_syswm.h>
 #endif
@@ -68,7 +66,9 @@ std::string clipboardText = "";
 
 int desktopWidth = 1280, desktopHeight = 1024;
 
-SDL_Surface * sdl_scrn;
+SDL_Window * sdl_window;
+SDL_Texture * sdl_texture;
+SDL_Renderer * sdl_renderer;
 int scale = 1;
 bool fullscreen = false;
 
@@ -193,121 +193,23 @@ void blit()
 #else
 void blit(pixel * vid)
 {
-	if(sdl_scrn)
-	{
-		pixel * src = vid;
-		int j, x = 0, y = 0, w = WINDOWW, h = WINDOWH, pitch = WINDOWW;
-		pixel *dst;
-		if (SDL_MUSTLOCK(sdl_scrn))
-			if (SDL_LockSurface(sdl_scrn)<0)
-				return;
-		dst=(pixel *)sdl_scrn->pixels+y*sdl_scrn->pitch/PIXELSIZE+x;
-		if (SDL_MapRGB(sdl_scrn->format,0x33,0x55,0x77)!=PIXPACK(0x335577))
-		{
-			//pixel format conversion
-			int i;
-			pixel px;
-			SDL_PixelFormat *fmt = sdl_scrn->format;
-			for (j=0; j<h; j++)
-			{
-				for (i=0; i<w; i++)
-				{
-					px = src[i];
-					dst[i] = ((PIXR(px)>>fmt->Rloss)<<fmt->Rshift)|
-							((PIXG(px)>>fmt->Gloss)<<fmt->Gshift)|
-							((PIXB(px)>>fmt->Bloss)<<fmt->Bshift);
-				}
-				dst+=sdl_scrn->pitch/PIXELSIZE;
-				src+=pitch;
-			}
-		}
-		else
-		{
-			for (j=0; j<h; j++)
-			{
-				memcpy(dst, src, w*PIXELSIZE);
-				dst+=sdl_scrn->pitch/PIXELSIZE;
-				src+=pitch;
-			}
-		}
-		if (SDL_MUSTLOCK(sdl_scrn))
-			SDL_UnlockSurface(sdl_scrn);
-		SDL_UpdateRect(sdl_scrn,0,0,0,0);
-	}
-}
-void blit2(pixel * vid, int currentScale)
-{
-	if(sdl_scrn)
-	{
-		pixel * src = vid;
-		int j, x = 0, y = 0, w = WINDOWW, h = WINDOWH, pitch = WINDOWW;
-		pixel *dst;
-		int i,k;
-		if (SDL_MUSTLOCK(sdl_scrn))
-			if (SDL_LockSurface(sdl_scrn)<0)
-				return;
-		dst=(pixel *)sdl_scrn->pixels+y*sdl_scrn->pitch/PIXELSIZE+x;
-		if (SDL_MapRGB(sdl_scrn->format,0x33,0x55,0x77)!=PIXPACK(0x335577))
-		{
-			//pixel format conversion
-			pixel px;
-			SDL_PixelFormat *fmt = sdl_scrn->format;
-			for (j=0; j<h; j++)
-			{
-				for (k=0; k<currentScale; k++)
-				{
-					for (i=0; i<w; i++)
-					{
-						px = src[i];
-						px = ((PIXR(px)>>fmt->Rloss)<<fmt->Rshift)|
-							((PIXG(px)>>fmt->Gloss)<<fmt->Gshift)|
-							((PIXB(px)>>fmt->Bloss)<<fmt->Bshift);
-						dst[i*2]=px;
-						dst[i*2+1]=px;
-					}
-					dst+=sdl_scrn->pitch/PIXELSIZE;
-				}
-				src+=pitch;
-			}
-		}
-		else
-		{
-			for (j=0; j<h; j++)
-			{
-				for (k=0; k<currentScale; k++)
-				{
-					for (i=0; i<w; i++)
-					{
-						dst[i*2]=src[i];
-						dst[i*2+1]=src[i];
-					}
-					dst+=sdl_scrn->pitch/PIXELSIZE;
-				}
-				src+=pitch;
-			}
-		}
-		if (SDL_MUSTLOCK(sdl_scrn))
-			SDL_UnlockSurface(sdl_scrn);
-		SDL_UpdateRect(sdl_scrn,0,0,0,0);
-	}
+	SDL_UpdateTexture(sdl_texture, NULL, vid, WINDOWW * 4);
+	SDL_RenderCopy(sdl_renderer, sdl_texture, NULL, NULL);
+	SDL_RenderPresent(sdl_renderer);
 }
 #endif
 
 int SDLOpen()
 {
-#if defined(WIN) && defined(WINCONSOLE)
+/*#if defined(WIN) && defined(WINCONSOLE)
 	FILE * console = fopen("CON", "w" );
-#endif
+#endif*/
 	if (SDL_Init(SDL_INIT_VIDEO)<0)
 	{
 		fprintf(stderr, "Initializing SDL: %s\n", SDL_GetError());
 		return 1;
 	}
-	const SDL_VideoInfo * vidInfo = SDL_GetVideoInfo();
-	desktopWidth = vidInfo->current_w;
-	desktopHeight = vidInfo->current_h;
-	SDL_EnableUNICODE(1);
-#if defined(WIN) && defined(WINCONSOLE)
+/*#if defined(WIN) && defined(WINCONSOLE)
 	//On Windows, SDL redirects stdout to stdout.txt, which can be annoying when debugging, here we redirect back to the console
 	if (console)
 	{
@@ -315,15 +217,70 @@ int SDLOpen()
 		freopen("CON", "w", stderr);
 		//fclose(console);
 	}
+#endif*/
+
+	Uint32 rmask, gmask, bmask, amask;
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+  rmask = 0xff000000;
+  gmask = 0x00ff0000;
+  bmask = 0x0000ff00;
+  amask = 0x000000ff;
+#else
+  rmask = 0x000000ff;
+  gmask = 0x0000ff00;
+  bmask = 0x00ff0000;
+  amask = 0xff000000;
 #endif
+
+	sdl_window = SDL_CreateWindow(
+		"The Powder Toy",
+		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+		WINDOWW, WINDOWH,
+#ifndef OGLI
+		SDL_WINDOW_RESIZABLE
+#else
+		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
+#endif
+	);
+	if (!sdl_window)
+	{
+		fprintf(stderr, "Creating window: %s\n", SDL_GetError());
+		return 1;
+	}
+
+	sdl_renderer = SDL_CreateRenderer(sdl_window, -1, 0);
+	if (!sdl_renderer)
+	{
+		fprintf(stderr, "Creating renderer: %s\n", SDL_GetError());
+		return 1;
+	}
+	sdl_texture = SDL_CreateTexture(
+		sdl_renderer,
+		SDL_PIXELFORMAT_ARGB8888,
+		SDL_TEXTUREACCESS_STREAMING,
+		WINDOWW, WINDOWH
+	);
+	if (!sdl_texture)
+	{
+		fprintf(stderr, "Creating texture: %s\n", SDL_GetError());
+		return 1;
+	}
+	SDL_RenderSetLogicalSize(sdl_renderer, WINDOWW, WINDOWH);
+
+	int index = SDL_GetWindowDisplayIndex(sdl_window);
+	SDL_DisplayMode mode;
+	SDL_GetDesktopDisplayMode(index, &mode);
+	desktopWidth = mode.w;
+	desktopHeight = mode.h;
+
 #ifdef WIN
 	SDL_SysWMinfo SysInfo;
 	SDL_VERSION(&SysInfo.version);
-	if(SDL_GetWMInfo(&SysInfo) <= 0) {
-	    printf("%s : %p\n", SDL_GetError(), SysInfo.window);
+	if(SDL_GetWindowWMInfo(sdl_window, &SysInfo) <= 0) {
+	    printf("%s : %p\n", SDL_GetError(), SysInfo.info.win.window);
 	    exit(-1);
 	}
-	HWND WindowHandle = SysInfo.window;
+	HWND WindowHandle = SysInfo.info.win.window;
 
 	// Use GetModuleHandle to get the Exe HMODULE/HINSTANCE
 	HMODULE hModExe = GetModuleHandle(NULL);
@@ -333,28 +290,23 @@ int SDLOpen()
 	SendMessage(WindowHandle, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
 #elif defined(LIN)
 	SDL_Surface *icon = SDL_CreateRGBSurfaceFrom((void*)app_icon, 48, 48, 24, 144, 0x00FF0000, 0x0000FF00, 0x000000FF, 0);
-	SDL_WM_SetIcon(icon, (Uint8*)app_icon_bitmap);
+	SDL_SetWindowIcon(sdl_window, icon);
 	SDL_FreeSurface(icon);
 #endif
 
-	SDL_WM_SetCaption("The Powder Toy", "Powder Toy");
 	//SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	atexit(SDL_Quit);
 
 	return 0;
 }
 
-SDL_Surface * SDLSetScreen(int newScale, bool newFullscreen)
+void SDLSetScreen(int newScale, bool newFullscreen)
 {
 	scale = newScale;
 	fullscreen = newFullscreen;
-	SDL_Surface * surface;
-#ifndef OGLI
-	surface = SDL_SetVideoMode(WINDOWW * newScale, WINDOWH * newScale, 32, SDL_SWSURFACE | (newFullscreen?SDL_FULLSCREEN:0));
-#else
-	surface = SDL_SetVideoMode(WINDOWW * newScale, WINDOWH * newScale, 32, SDL_OPENGL | SDL_RESIZABLE | (newFullscreen?SDL_FULLSCREEN:0));
-#endif
-	return surface;
+
+	SDL_SetWindowSize(sdl_window, WINDOWW * newScale, WINDOWH * newScale);
+	SDL_SetWindowFullscreen(sdl_window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
 std::map<std::string, std::string> readArguments(int argc, char * argv[])
@@ -421,7 +373,7 @@ std::map<std::string, std::string> readArguments(int argc, char * argv[])
 	return arguments;
 }
 
-SDLKey MapNumpad(SDLKey key)
+SDL_Keycode MapNumpad(SDL_Keycode key)
 {
 	switch(key)
 	{
@@ -450,7 +402,7 @@ SDLKey MapNumpad(SDLKey key)
 
 int elapsedTime = 0, currentTime = 0, lastTime = 0, currentFrame = 0;
 unsigned int lastTick = 0;
-float fps = 0, delta = 1.0f, inputScale = 1.0f;
+float fps = 0, delta = 1.0f;
 ui::Engine * engine = NULL;
 float currentWidth, currentHeight;
 
@@ -458,16 +410,15 @@ void EventProcess(SDL_Event event)
 {
 	if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
 	{
-		if (event.key.keysym.unicode==0)
+		if (SDL_GetModState() & KMOD_NUM)
 		{
 			// If unicode is zero, this could be a numpad key with numlock off, or numlock on and shift on (unicode is set to 0 by SDL or the OS in these circumstances. If numlock is on, unicode is the relevant digit character).
 			// For some unknown reason, event.key.keysym.mod seems to be unreliable on some computers (keysum.mod&KEY_MOD_NUM is opposite to the actual value), so check keysym.unicode instead.
 			// Note: unicode is always zero for SDL_KEYUP events, so this translation won't always work properly for keyup events.
-			SDLKey newKey = MapNumpad(event.key.keysym.sym);
+			SDL_Keycode newKey = MapNumpad(event.key.keysym.sym);
 			if (newKey != event.key.keysym.sym)
 			{
 				event.key.keysym.sym = newKey;
-				event.key.keysym.unicode = 0;
 			}
 		}
 	}
@@ -478,57 +429,56 @@ void EventProcess(SDL_Event event)
 			engine->Exit();
 		break;
 	case SDL_KEYDOWN:
-		engine->onKeyPress(event.key.keysym.sym, event.key.keysym.unicode, event.key.keysym.mod&KEY_MOD_SHIFT, event.key.keysym.mod&KEY_MOD_CONTROL, event.key.keysym.mod&KEY_MOD_ALT);
+		engine->onKeyPress(event.key.keysym.sym, 0, event.key.keysym.mod&KEY_MOD_SHIFT, event.key.keysym.mod&KEY_MOD_CONTROL, event.key.keysym.mod&KEY_MOD_ALT);
 		break;
 	case SDL_KEYUP:
-		engine->onKeyRelease(event.key.keysym.sym, event.key.keysym.unicode, event.key.keysym.mod&KEY_MOD_SHIFT, event.key.keysym.mod&KEY_MOD_CONTROL, event.key.keysym.mod&KEY_MOD_ALT);
+		engine->onKeyRelease(event.key.keysym.sym, 0, event.key.keysym.mod&KEY_MOD_SHIFT, event.key.keysym.mod&KEY_MOD_CONTROL, event.key.keysym.mod&KEY_MOD_ALT);
 		break;
 	case SDL_MOUSEMOTION:
-		engine->onMouseMove(event.motion.x*inputScale, event.motion.y*inputScale);
+		engine->onMouseMove(event.motion.x, event.motion.y);
+		break;
+	case SDL_MOUSEWHEEL:
+		if (event.wheel.y > 0)
+		{
+			engine->onMouseWheel(event.motion.x, event.motion.y, 1);
+		}
+		else if (event.wheel.y < 0)
+		{
+			engine->onMouseWheel(event.motion.x, event.motion.y, -1);
+		}
 		break;
 	case SDL_MOUSEBUTTONDOWN:
-		if (event.button.button == SDL_BUTTON_WHEELUP)
-		{
-			engine->onMouseWheel(event.motion.x*inputScale, event.motion.y*inputScale, 1);
-		}
-		else if (event.button.button == SDL_BUTTON_WHEELDOWN)
-		{
-			engine->onMouseWheel(event.motion.x*inputScale, event.motion.y*inputScale, -1);
-		}
-		else
-		{
-			engine->onMouseClick(event.motion.x*inputScale, event.motion.y*inputScale, event.button.button);
-		}
+		engine->onMouseClick(event.motion.x, event.motion.y, event.button.button);
 		break;
 	case SDL_MOUSEBUTTONUP:
-		if (event.button.button != SDL_BUTTON_WHEELUP && event.button.button != SDL_BUTTON_WHEELDOWN)
-			engine->onMouseUnclick(event.motion.x*inputScale, event.motion.y*inputScale, event.button.button);
+		engine->onMouseUnclick(event.motion.x, event.motion.y, event.button.button);
 		break;
-#ifdef OGLI
-	case SDL_VIDEORESIZE:
+	case SDL_WINDOWEVENT:
 	{
-		float ratio = (float)WINDOWW / WINDOWH;
-		float width = event.resize.w;
-		float height = width/ratio;
-
-		sdl_scrn = SDL_SetVideoMode(event.resize.w, height, 32, SDL_OPENGL | SDL_RESIZABLE);
-
-		glViewport(0, 0, width, height);
-		engine->g->Reset();
-		//glScaled(width/currentWidth, height/currentHeight, 1.0f);
-
-		currentWidth = width;
-		currentHeight = height;
-		inputScale = (float)WINDOWW/currentWidth;
-
-		glLineWidth(currentWidth/(float)WINDOWW);
-		if(sdl_scrn == NULL)
+		switch (event.window.event)
 		{
-			std::cerr << "Oh bugger" << std::endl;
-		}
-		break;
-	}
+			case SDL_WINDOWEVENT_RESIZED:
+				float ratio = (float)WINDOWW / WINDOWH;
+				float width = event.window.data1;
+				float height = width/ratio;
+
+				currentWidth = width;
+				currentHeight = height;
+
+#ifdef OGLI
+				glViewport(0, 0, width, height);
+				engine->g->Reset();
+				//glScaled(width/currentWidth, height/currentHeight, 1.0f);
+
+				glLineWidth(currentWidth/(float)WINDOWW);
+				if(sdl_scrn == NULL)
+				{
+					std::cerr << "Oh bugger" << std::endl;
+				}
 #endif
+				break;
+		}
+	}
 #if defined (USE_SDL) && defined(LIN) && defined(SDL_VIDEO_DRIVER_X11)
 	case SDL_SYSWMEVENT:
 		if (event.syswm.msg->subsystem != SDL_SYSWM_X11)
@@ -593,16 +543,16 @@ void EngineProcess()
 		
 		if(scale != engine->Scale || fullscreen != engine->Fullscreen)
 		{
-			sdl_scrn = SDLSetScreen(engine->Scale, engine->Fullscreen);
-			inputScale = 1.0f/(float)scale;
+			SDLSetScreen(engine->Scale, engine->Fullscreen);
 		}
 
 #ifdef OGLI
 		blit();
 #else
-		if(engine->Scale==2)
+		/*if(engine->Scale==2)
 			blit2(engine->g->vid, engine->Scale);
-		else
+		else*/
+			// XXX
 			blit(engine->g->vid);
 #endif
 
@@ -637,13 +587,12 @@ int GetModifiers()
 
 #ifdef WIN
 
-// Returns true if the loaded position was set
-// Returns false if something went wrong: SDL_GetWMInfo failed or the loaded position was invalid
-bool LoadWindowPosition(int scale)
+void LoadWindowPosition(int scale)
 {
-	SDL_SysWMinfo sysInfo;
+	// XXX: I'm pretty sure SDL2 handles all this for us
+	/*SDL_SysWMinfo sysInfo;
 	SDL_VERSION(&sysInfo.version);
-	if (SDL_GetWMInfo(&sysInfo) > 0)
+	if (SDL_GetWindowWMInfo(sdl_window, &sysInfo) > 0)
 	{
 		int windowW = WINDOWW * scale;
 		int windowH = WINDOWH * scale;
@@ -689,29 +638,31 @@ bool LoadWindowPosition(int scale)
 
 		// True if we didn't use the default, i.e. the position was valid
 		return success;
+	}*/
+
+	int savedWindowX = Client::Ref().GetPrefInteger("WindowX", INT_MAX);
+	int savedWindowY = Client::Ref().GetPrefInteger("WindowY", INT_MAX);
+
+	// Center the window on the primary desktop by default
+	int newWindowX = SDL_WINDOWPOS_CENTERED;
+	int newWindowY = SDL_WINDOWPOS_CENTERED;
+
+	if (savedWindowX != INT_MAX && savedWindowY != INT_MAX)
+	{
+		newWindowX = savedWindowX;
+		newWindowY = savedWindowY;
 	}
 
-	return false;
+	SDL_SetWindowPosition(sdl_window, newWindowX, newWindowY);
 }
 
 // Returns true if the window position was saved
-bool SaveWindowPosition()
+void SaveWindowPosition()
 {
-	SDL_SysWMinfo sysInfo;
-	SDL_VERSION(&sysInfo.version);
-	if (SDL_GetWMInfo(&sysInfo) > 0)
-	{
-		WINDOWPLACEMENT placement;
-		placement.length = sizeof(placement);
-		GetWindowPlacement(sysInfo.window, &placement);
-
-		Client::Ref().SetPref("WindowX", (int)placement.rcNormalPosition.left);
-		Client::Ref().SetPref("WindowY", (int)placement.rcNormalPosition.top);
-
-		return true;
-	}
-
-	return false;
+	int windowX, windowY;
+	SDL_GetWindowPosition(sdl_window, &windowX, &windowY);
+	Client::Ref().SetPref("WindowX", windowX);
+	Client::Ref().SetPref("WindowY", windowY);
 }
 
 #endif
@@ -750,10 +701,7 @@ void BlueScreen(const char * detailMessage){
 #ifdef OGLI
 		blit();
 #else
-		if(engine->Scale==2)
-			blit2(engine->g->vid, engine->Scale);
-		else
-			blit(engine->g->vid);
+		blit(engine->g->vid);
 #endif
 	}
 }
@@ -840,10 +788,8 @@ int main(int argc, char * argv[])
 		tempScale = 2;
 		Client::Ref().SetPref("Scale", 2);
 	}
-#ifdef WIN
 	LoadWindowPosition(tempScale);
-#endif
-	sdl_scrn = SDLSetScreen(tempScale, tempFullscreen);
+	SDLSetScreen(tempScale, tempFullscreen);
 
 #ifdef OGLI
 	SDL_GL_SetAttribute (SDL_GL_DOUBLEBUFFER, 1);
@@ -860,7 +806,7 @@ int main(int argc, char * argv[])
 #if defined (USE_SDL) && defined(LIN) && defined(SDL_VIDEO_DRIVER_X11)
 	SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
 	SDL_VERSION(&sdl_wminfo.version);
-	SDL_GetWMInfo(&sdl_wminfo);
+	SDL_GetWindowWMInfo(sdl_window, &sdl_wminfo);
 	sdl_wminfo.info.x11.lock_func();
 	XA_CLIPBOARD = XInternAtom(sdl_wminfo.info.x11.display, "CLIPBOARD", 1);
 	XA_TARGETS = XInternAtom(sdl_wminfo.info.x11.display, "TARGETS", 1);
@@ -869,7 +815,6 @@ int main(int argc, char * argv[])
 #endif
 	ui::Engine::Ref().g = new Graphics();
 	ui::Engine::Ref().Scale = scale;
-	inputScale = 1.0f/float(scale);
 	ui::Engine::Ref().Fullscreen = fullscreen;
 
 	engine = &ui::Engine::Ref();
@@ -937,10 +882,7 @@ int main(int argc, char * argv[])
 #ifdef OGLI
 			blit();
 #else
-			if(engine->Scale==2)
-				blit2(engine->g->vid, engine->Scale);
-			else
-				blit(engine->g->vid);
+			blit(engine->g->vid);
 #endif
 			std::string ptsaveArg = arguments["ptsave"];
 			try
@@ -991,12 +933,10 @@ int main(int argc, char * argv[])
 		//initial mouse coords
 		int sdl_x, sdl_y;
 		SDL_GetMouseState(&sdl_x, &sdl_y);
-		engine->onMouseMove(sdl_x*inputScale, sdl_y*inputScale);
+		engine->onMouseMove(sdl_x, sdl_y);
 		EngineProcess();
 		
-#ifdef WIN
 		SaveWindowPosition();
-#endif
 
 #if !defined(DEBUG) && !defined(_DEBUG)
 	}

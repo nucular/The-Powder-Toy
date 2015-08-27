@@ -395,7 +395,7 @@ if platform == "Windows":
 			env.Append(LINKFLAGS=['/NODEFAULTLIB:LIBCMT.lib', '/LTCG'])
 		else:
 			env.Append(LINKFLAGS=['/NODEFAULTLIB:msvcrt.lib'])
-	else:
+	#else:
 		env.Append(LINKFLAGS=['-mwindows'])
 elif platform == "Linux":
 	env.Append(CPPDEFINES=['LIN'])
